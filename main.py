@@ -1,7 +1,10 @@
+name=Main_2.py
 import os
 import logging
 import asyncio
 import re
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton, ReplyKeyboardRemove
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
@@ -253,6 +256,21 @@ COUNTRY_FLAG_MAP = {
     "tuvalu": "🇹🇻", "688": "🇹🇻",
     "vanuatu": "🇻🇺", "678": "🇻🇺"
 }
+
+# Simple HTTP Server for Render / UptimeRobot health checks
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ANU Premium Bot is alive and running!")
+    
+    def log_message(self, format, *args):
+        # Suppress routine HTTP access logs to keep terminal clean
+        return
+
+def run_health_server():
+    server = HTTPServer(("0.0.0.0", 10000), HealthCheckHandler)
+    server.serve_forever()
 
 def get_flag_automatically(text: str) -> str:
     """Scans text for any matching country name or prefix code to automatically resolve the flag emoji."""
@@ -720,6 +738,10 @@ def main():
         print("❌ Error: TELEGRAM_BOT_TOKEN is not set in your .env file.")
         return
 
+    # Start the lightweight HTTP health check server in a background thread for Render & UptimeRobot
+    threading.Thread(target=run_health_server, daemon=True).start()
+    logging.info("🌐 Health check web server started on port 10000.")
+
     application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
     # Register handlers
@@ -731,7 +753,7 @@ def main():
     application.add_handler(CallbackQueryHandler(provision_callback_handler, pattern="^(srv_|prov_|close_)"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_reply_keyboard_clicks))
 
-    print("🤖 ANU PREMIUM OTP Bot is running cleanly with Supabase storage enabled!")
+    print("🤖 ANU PREMIUM OTP Bot is running cleanly with Supabase storage and Uptime integration enabled!")
     application.run_polling()
 
 if __name__ == "__main__":
