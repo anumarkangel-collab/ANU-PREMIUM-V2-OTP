@@ -1,4 +1,3 @@
-name=Main_2.py
 import os
 import logging
 import asyncio
