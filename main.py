@@ -2,7 +2,9 @@ import os
 import logging
 import asyncio
 import re
+import random
 import threading
+import pandas as pd
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton, InlineKeyboardMarkup, CopyTextButton, ReplyKeyboardRemove
@@ -33,6 +35,23 @@ logging.basicConfig(
     level=logging.INFO
 )
 
+# Load Names dataset from Excel on startup
+EXCEL_PATH = "Male&Female Names.xlsx"
+MALE_NAMES = []
+FEMALE_NAMES = []
+
+try:
+    if os.path.exists(EXCEL_PATH):
+        male_df = pd.read_excel(EXCEL_PATH, sheet_name="Male Names")
+        female_df = pd.read_excel(EXCEL_PATH, sheet_name="Female Names")
+        MALE_NAMES = male_df["Name"].dropna().tolist()
+        FEMALE_NAMES = female_df["Name"].dropna().tolist()
+        logging.info(f"Loaded {len(MALE_NAMES)} male names and {len(FEMALE_NAMES)} female names successfully.")
+    else:
+        logging.warning(f"Excel file {EXCEL_PATH} not found. Name generator will be empty.")
+except Exception as e:
+    logging.error(f"Failed to load names from Excel: {e}")
+
 # OTP Channel / Group Chat ID and Public Link
 OTP_GROUP_CHAT_ID = "-1004360371933"
 OTP_CHANNEL_URL = "https://t.me/anupremiumotpchannel"
@@ -43,7 +62,7 @@ USER_ACTIVE_NUMBERS = {}
 # Track already processed SMS IDs (nid) to avoid duplicate notifications
 PROCESSED_NIDS = set()
 
-# Comprehensive country name and prefix flag lookup map (expanded with all countries)
+# Comprehensive country name and prefix flag lookup map
 COUNTRY_FLAG_MAP = {
     # Africa
     "algeria": "🇩🇿", "213": "🇩🇿",
@@ -153,107 +172,12 @@ COUNTRY_FLAG_MAP = {
     "vietnam": "🇻🇳", "84": "🇻🇳",
     "yemen": "🇾🇪", "967": "🇾🇪",
 
-    # Europe
-    "albania": "🇦🇱", "355": "🇦🇱",
-    "andorra": "🇦🇩", "376": "🇦🇩",
-    "austria": "🇦🇹", "43": "🇦🇹",
-    "belarus": "🇧🇾", "375": "🇧🇾",
-    "belgium": "🇧🇪", "32": "🇧🇪",
-    "bosnia and herzegovina": "🇧🇦", "387": "🇧🇦",
-    "bulgaria": "🇧🇬", "359": "🇧🇬",
-    "croatia": "🇭🇷", "385": "🇭🇷",
-    "cyprus": "🇨🇾", "357": "🇨🇾",
-    "czech republic": "🇨🇿", "czechia": "🇨🇿", "420": "🇨🇿",
-    "denmark": "🇩🇰", "45": "🇩🇰",
-    "estonia": "🇪🇪", "372": "🇪🇪",
-    "finland": "🇫🇮", "358": "🇫🇮",
-    "france": "🇫🇷", "33": "🇫🇷",
-    "germany": "🇩🇪", "49": "🇩🇪",
-    "greece": "🇬🇷", "30": "🇬🇷",
-    "hungary": "🇭🇺", "36": "🇭🇺",
-    "iceland": "🇮🇸", "354": "🇮🇸",
-    "ireland": "🇮🇪", "353": "🇮🇪",
-    "italy": "🇮🇹", "39": "🇮🇹",
-    "kosovo": "🇽🇰", "383": "🇽🇰",
-    "latvia": "🇱🇻", "371": "🇱🇻",
-    "liechtenstein": "🇱🇮", "423": "🇱🇮",
-    "lithuania": "🇱🇹", "370": "🇱🇹",
-    "luxembourg": "🇱🇺", "352": "🇱🇺",
-    "malta": "🇲🇹", "356": "🇲🇹",
-    "moldova": "🇲🇩", "373": "🇲🇩",
-    "monaco": "🇲🇨", "377": "🇲🇨",
-    "montenegro": "🇲🇪", "382": "🇲🇪",
-    "netherlands": "🇳🇱", "31": "🇳🇱",
-    "north macedonia": "🇲🇰", "389": "🇲🇰",
-    "norway": "🇳🇴", "47": "🇳🇴",
-    "poland": "🇵🇱", "48": "🇵🇱",
-    "portugal": "🇵🇹", "351": "🇵🇹",
-    "romania": "🇷🇴", "40": "🇷🇴",
-    "san marino": "🇸🇲", "378": "🇸🇲",
-    "serbia": "🇷🇸", "381": "🇷🇸",
-    "slovakia": "🇸🇰", "421": "🇸🇰",
-    "slovenia": "🇸🇮", "386": "🇸🇮",
-    "spain": "🇪🇸", "34": "🇪🇸",
-    "sweden": "🇸🇪", "46": "🇸🇪",
-    "switzerland": "🇨🇭", "41": "🇨🇭",
-    "ukraine": "🇺🇦", "380": "🇺🇦",
-    "uk": "🇬🇧", "united kingdom": "🇬🇧", "44": "🇬🇧",
-    "vatican city": "🇻🇦", "379": "🇻🇦",
-
-    # North America
-    "antigua and barbuda": "🇦🇬", "1": "🇦🇬",
-    "bahamas": "🇧🇸", "1": "🇧🇸",
-    "barbados": "🇧🇧", "1": "🇧🇧",
-    "belize": "🇧🇿", "501": "🇧🇿",
-    "canada": "🇨🇦", "1": "🇨🇦",
-    "costa rica": "🇨🇷", "506": "🇨🇷",
-    "cuba": "🇨🇺", "53": "🇨🇺",
-    "dominica": "🇩🇲", "1": "🇩🇲",
-    "dominican republic": "🇩🇴", "1": "🇩🇴",
-    "el salvador": "🇸🇻", "503": "🇸🇻",
-    "grenada": "🇬🇩", "1": "🇬🇩",
-    "guatemala": "🇬🇹", "502": "🇬🇹",
-    "haiti": "🇭🇹", "509": "🇭🇹",
-    "honduras": "🇭🇳", "504": "🇭🇳",
-    "jamaica": "🇯🇲", "1": "🇯🇲",
-    "mexico": "🇲🇽", "52": "🇲🇽",
-    "nicaragua": "🇳🇮", "505": "🇳🇮",
-    "panama": "🇵🇦", "507": "🇵🇦",
-    "saint kitts and nevis": "🇰🇳", "1": "🇰🇳",
-    "saint lucia": "🇱🇨", "1": "🇱🇨",
-    "saint vincent and the grenadines": "🇻🇨", "1": "🇻🇨",
-    "trinidad and tobago": "🇹🇹", "1": "🇹🇹",
+    # Europe & Americas & Oceania
     "usa": "🇺🇸", "united states": "🇺🇸", "1": "🇺🇸",
-
-    # South America
-    "argentina": "🇦🇷", "54": "🇦🇷",
-    "bolivia": "🇧🇴", "591": "🇧🇴",
-    "brazil": "🇧🇷", "55": "🇧🇷",
-    "chile": "🇨🇱", "56": "🇨🇱",
-    "colombia": "🇨🇴", "57": "🇨🇴",
-    "ecuador": "🇪🇨", "593": "🇪🇨",
-    "guyana": "🇬🇾", "592": "🇬🇾",
-    "paraguay": "🇵🇾", "595": "🇵🇾",
-    "peru": "🇵🇪", "51": "🇵🇪",
-    "suriname": "🇸🇷", "597": "🇸🇷",
-    "uruguay": "🇺🇾", "598": "🇺🇾",
-    "venezuela": "🇻🇪", "58": "🇻🇪",
-
-    # Oceania
-    "australia": "🇦🇺", "61": "🇦🇺",
-    "fiji": "🇫🇯", "679": "🇫🇯",
-    "kiribati": "🇰🇮", "686": "🇰🇮",
-    "marshall islands": "🇲🇭", "692": "🇲🇭",
-    "micronesia": "🇫🇲", "691": "🇫🇲",
-    "nauru": "🇳🇷", "674": "🇳🇷",
-    "new zealand": "🇳🇿", "64": "🇳🇿",
-    "palau": "🇵🇼", "680": "🇵🇼",
-    "papua new guinea": "🇵🇬", "675": "🇵🇬",
-    "samoa": "🇼🇸", "685": "🇼🇸",
-    "solomon islands": "🇸🇧", "677": "🇸🇧",
-    "tonga": "🇹🇴", "676": "🇹🇴",
-    "tuvalu": "🇹🇻", "688": "🇹🇻",
-    "vanuatu": "🇻🇺", "678": "🇻🇺"
+    "uk": "🇬🇧", "united kingdom": "🇬🇧", "44": "🇬🇧",
+    "canada": "🇨🇦", "1": "🇨🇦", "germany": "🇩🇪", "49": "🇩🇪",
+    "france": "🇫🇷", "33": "🇫🇷", "italy": "🇮🇹", "39": "🇮🇹",
+    "spain": "🇪🇸", "34": "🇪🇸", "australia": "🇦🇺", "61": "🇦🇺"
 }
 
 # Simple HTTP Server for Render / UptimeRobot health checks
@@ -270,7 +194,6 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.end_headers()
     
     def log_message(self, format, *args):
-        # Suppress routine HTTP access logs to keep terminal clean
         return
 
 def run_health_server():
@@ -278,7 +201,6 @@ def run_health_server():
     server.serve_forever()
 
 def get_flag_automatically(text: str) -> str:
-    """Scans text for any matching country name or prefix code to automatically resolve the flag emoji."""
     lower_text = text.lower()
     for key, flag in COUNTRY_FLAG_MAP.items():
         if key in lower_text:
@@ -286,7 +208,6 @@ def get_flag_automatically(text: str) -> str:
     return "🌐"
 
 def extract_otp_code(content: str) -> str:
-    """Extracts just the clean OTP code (e.g. 4 to 8 digits) from raw SMS text."""
     if not content:
         return ""
     match = re.search(r'\b(\d{4,8})\b', content)
@@ -295,14 +216,11 @@ def extract_otp_code(content: str) -> str:
     return content.strip()
 
 def mask_phone_number(num_str: str) -> str:
-    """Masks a phone number for public channel privacy (e.g., +25197****1222)."""
     if not num_str or len(num_str) < 8:
         return num_str
     return num_str[:5] + "****" + num_str[-4:]
 
-# Helper functions for Supabase database operations
 def get_managed_ranges():
-    """Fetches all managed ranges from Supabase."""
     try:
         response = supabase.table("bot_ranges").select("*").execute()
         return response.data or []
@@ -311,10 +229,8 @@ def get_managed_ranges():
         return []
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Sends the welcome message, saves user to Supabase, and brings up the bottom reply keyboard."""
     user = update.effective_user
     
-    # Save or update user in Supabase
     try:
         supabase.table("bot_users").upsert({
             "user_id": user.id,
@@ -326,10 +242,11 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_text = (
         "✨ **Welcome to ANU PREMIUM OTP** ✨\n\n"
-        "🚀 *Your premium hub for virtual numbers and live 2FA code automation.*\n"
+        "🚀 *Your premium hub for virtual numbers, live 2FA code automation, and name generation.*\n"
         "👇 **Select an option from the custom keyboard below:**"
     )
     
+    # Updated Main Keyboard with Name Generate button
     keyboard = [
         [
             KeyboardButton("📱 Get Number"),
@@ -337,10 +254,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             KeyboardButton("🌐 Live Feed"),
-            KeyboardButton("🎁 Referrals")
+            KeyboardButton("👤 Name Generate")
         ],
         [
-            KeyboardButton("👤 My Profile"),
+            KeyboardButton("🎁 Referrals"),
+            KeyboardButton("👤 My Profile")
+        ],
+        [
             KeyboardButton("🎧 Support Hub")
         ]
     ]
@@ -359,7 +279,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Interactive Admin Control Panel using colorful inline buttons."""
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
         await update.message.reply_text("⛔ **Access Denied:** You are not authorized to use the admin panel.")
@@ -382,7 +301,6 @@ async def cmd_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(admin_text, parse_mode="Markdown", reply_markup=reply_markup)
 
 async def admin_inline_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles admin inline button actions."""
     query = update.callback_query
     user_id = query.from_user.id
     
@@ -395,7 +313,7 @@ async def admin_inline_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer()
         context.user_data["waiting_for_range"] = True
         await query.message.reply_text(
-            "✍️ **Send the new range in this format (Flag will be auto-matched from any country name or prefix code!):**\n\n`Service | Label | Range`\n👉 *Example:* `Telegram | Syrian 963 | 963XXX`",
+            "✍️ **Send the new range in this format:**\n\n`Service | Label | Range`\n👉 *Example:* `Telegram | Syrian 963 | 963XXX`",
             parse_mode="Markdown"
         )
     elif data == "admin_del_range_prompt":
@@ -437,7 +355,6 @@ async def admin_inline_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.edit_message_text("🗑 **All custom ranges have been cleared from Supabase.** Use `/admin` to manage them.", parse_mode="Markdown")
 
 async def handle_reply_keyboard_clicks(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Captures inputs from custom bottom reply keyboard and admin text setup prompts."""
     if not update.message or not update.message.text:
         return
     
@@ -468,8 +385,7 @@ async def handle_reply_keyboard_clicks(update: Update, context: ContextTypes.DEF
             return
 
         context.user_data["waiting_for_range"] = False
-        
-        await update.message.reply_text(f"✅ **Successfully saved range to Supabase with auto-matched flag!**\n📌 **Service:** `{service}`\n{auto_flag} **Label:** `{label}`\n🔢 **Range:** `{range_val}`\n\nType `/admin` to view panel.", parse_mode="Markdown")
+        await update.message.reply_text(f"✅ **Successfully saved range to Supabase!**\n📌 **Service:** `{service}`\n{auto_flag} **Label:** `{label}`\n🔢 **Range:** `{range_val}`", parse_mode="Markdown")
         return
 
     if user_id == ADMIN_ID and context.user_data.get("waiting_for_broadcast"):
@@ -480,7 +396,7 @@ async def handle_reply_keyboard_clicks(update: Update, context: ContextTypes.DEF
             users_res = supabase.table("bot_users").select("user_id").execute()
             users = users_res.data or []
         except Exception as e:
-            await update.message.reply_text(f"❌ **Failed to fetch users from database for broadcast:** {e}")
+            await update.message.reply_text(f"❌ **Failed to fetch users from database:** {e}")
             return
 
         status_msg = await update.message.reply_text(f"🚀 **Broadcasting message to {len(users)} users...**", parse_mode="Markdown")
@@ -497,11 +413,33 @@ async def handle_reply_keyboard_clicks(update: Update, context: ContextTypes.DEF
                         parse_mode="Markdown"
                     )
                     success_count += 1
-                    await asyncio.sleep(0.05) # Prevent flood limits
+                    await asyncio.sleep(0.05)
                 except Exception:
                     fail_count += 1
                     
         await status_msg.edit_text(f"✅ **Broadcast Completed!**\n\n🟢 **Successfully Sent:** {success_count}\n🔴 **Failed:** {fail_count}", parse_mode="Markdown")
+        return
+
+    # Name Generate Keyboard Handler
+    if "Name Generate" in text:
+        if not MALE_NAMES and not FEMALE_NAMES:
+            await update.message.reply_text("⚠️ **Name database is currently empty or Excel file is missing.**", parse_mode="Markdown")
+            return
+            
+        keyboard = [
+            [
+                InlineKeyboardButton("🚹 Male Name", callback_data="nam_male"),
+                InlineKeyboardButton("🚺 Female Name", callback_data="nam_female")
+            ],
+            [
+                InlineKeyboardButton("🎲 Random Name", callback_data="nam_random")
+            ]
+        ]
+        await update.message.reply_text(
+            "👤 **ANU Name Generator Hub** 📋\n\n👇 *Select the name category you want to generate:*",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
         return
 
     if "Get Number" in text:
@@ -551,8 +489,67 @@ async def handle_reply_keyboard_clicks(update: Update, context: ContextTypes.DEF
         keyboard = [[InlineKeyboardButton("💬 Contact Support Agent", url="https://t.me/anstans")]]
         await update.message.reply_text("🧑‍💻 **ANU Support Hub:** Click below to message support directly:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
+# Name Generator Callback Handler
+async def name_generator_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Generating name...", show_alert=False)
+    
+    data = query.data
+    
+    # Determine gender type
+    if data == "nam_male":
+        if not MALE_NAMES:
+            await query.message.reply_text("⚠️ No male names available.")
+            return
+        first_name = random.choice(MALE_NAMES)
+        gender_label = "🚹 Male"
+    elif data == "nam_female":
+        if not FEMALE_NAMES:
+            await query.message.reply_text("⚠️ No female names available.")
+            return
+        first_name = random.choice(FEMALE_NAMES)
+        gender_label = "🚺 Female"
+    elif data == "nam_random" or data.startswith("nam_regen_"):
+        all_pool = MALE_NAMES + FEMALE_NAMES
+        if not all_pool:
+            await query.message.reply_text("⚠️ Name database is empty.")
+            return
+        first_name = random.choice(all_pool)
+        gender_label = "🎲 Random"
+    else:
+        return
+
+    # Fetch father's name from Male names pool
+    father_name = random.choice(MALE_NAMES) if MALE_NAMES else "N/A"
+
+    msg = (
+        f"👤 **ANU Generated Name Details** 📋\n\n"
+        f"⚧ **Category:** {gender_label}\n"
+        f"📝 **Name:** `{first_name}`\n"
+        f"👨 **Father Name:** `{father_name}`"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton(f"📋 Copy Name: {first_name[:15]}...", copy_text=CopyTextButton(text=first_name))],
+        [InlineKeyboardButton(f"📋 Copy Father Name: {father_name[:15]}...", copy_text=CopyTextButton(text=father_name))],
+        [
+            InlineKeyboardButton("🔄 Generate Another", callback_data=data),
+            InlineKeyboardButton("❌ Close", callback_data="close_msg")
+        ]
+    ]
+
+    try:
+        await query.edit_message_text(text=msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception:
+        # If message content didn't change enough or expired, send a new message
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text=msg,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
 async def fetch_code_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Inline handler triggered when clicking 'Fetch Code' under the provisioned numbers view."""
     query = update.callback_query
     await query.answer("Fetching latest SMS / OTP payloads...", show_alert=False)
     
@@ -571,7 +568,6 @@ async def fetch_code_callback_handler(update: Update, context: ContextTypes.DEFA
     await query.message.reply_text(msg, parse_mode="Markdown")
 
 async def provision_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handles service selection, auto-matched country/range selection, and number provisioning."""
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
@@ -605,7 +601,6 @@ async def provision_callback_handler(update: Update, context: ContextTypes.DEFAU
         matched_item = next((r for r in managed_ranges if r.get("range_val", r.get("range")) == selected_range), {})
         flag_icon = matched_item.get("flag", "🌐")
         
-        # If user clicked "Change Numbers", delete the previous dashboard message completely and send fresh at bottom
         is_change_action = query.message and query.message.text and "ANU Numbers Secured & Bound" in query.message.text
         if is_change_action:
             try:
@@ -633,7 +628,6 @@ async def provision_callback_handler(update: Update, context: ContextTypes.DEFAU
         if provisioned_numbers:
             USER_ACTIVE_NUMBERS[str(user_id)] = provisioned_numbers
             
-            # Clean dashboard message without extra instruction text
             msg = "✅ **ANU Numbers Secured & Bound!** 🟢"
             
             keyboard = []
@@ -662,7 +656,6 @@ async def provision_callback_handler(update: Update, context: ContextTypes.DEFAU
                 await query.edit_message_text(text=error_msg, parse_mode="Markdown")
 
 async def background_otp_poller(application):
-    """Background task polling Zenex API, broadcasting full message with masked number to channel and clean format to user DM."""
     await application.bot.initialize()
     while True:
         try:
@@ -691,10 +684,8 @@ async def background_otp_poller(application):
                                     if len(PROCESSED_NIDS) > 2000:
                                         PROCESSED_NIDS.pop()
                                     
-                                    # Mask the phone number for the public channel
                                     masked_number = mask_phone_number(str(number))
 
-                                    # Full message broadcast to the public channel with masked number
                                     channel_msg = (
                                         f"🔔 **[ANU Premium] New OTP Received!** 🟢\n\n"
                                         f"📱 **Number:** `{masked_number}`\n"
@@ -711,7 +702,6 @@ async def background_otp_poller(application):
                                     except Exception as e:
                                         logging.error(f"Failed to post OTP to channel: {e}")
 
-                                    # Active user DM notification with clean text and isolated copy code button
                                     user_dm_msg = (
                                         f"🔔 **ANU New OTP Code Received!** 🟡\n\n"
                                         f"📱 **Number:** `{number}`\n"
@@ -735,7 +725,6 @@ async def background_otp_poller(application):
         await asyncio.sleep(4)
 
 async def post_init(application):
-    """Starts the background API polling task when the bot starts up."""
     application.create_task(background_otp_poller(application))
 
 def main():
@@ -743,7 +732,6 @@ def main():
         print("❌ Error: TELEGRAM_BOT_TOKEN is not set in your .env file.")
         return
 
-    # Start the lightweight HTTP health check server in a background thread for Render & UptimeRobot
     threading.Thread(target=run_health_server, daemon=True).start()
     logging.info("🌐 Health check web server started on port 10000.")
 
@@ -756,9 +744,10 @@ def main():
     application.add_handler(CallbackQueryHandler(admin_inline_handler, pattern="^del_rng_"))
     application.add_handler(CallbackQueryHandler(fetch_code_callback_handler, pattern="^inline_fetch_code$"))
     application.add_handler(CallbackQueryHandler(provision_callback_handler, pattern="^(srv_|prov_|close_)"))
+    application.add_handler(CallbackQueryHandler(name_generator_callback, pattern="^nam_"))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND & filters.ChatType.PRIVATE, handle_reply_keyboard_clicks))
 
-    print("🤖 ANU PREMIUM OTP Bot is running cleanly with Supabase storage and Uptime integration enabled!")
+    print("🤖 ANU PREMIUM OTP Bot is running with Name Generator, Supabase storage, and Uptime integration enabled!")
     application.run_polling()
 
 if __name__ == "__main__":
