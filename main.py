@@ -1,4 +1,3 @@
-# Name: Main_3.py
 import os
 import logging
 import asyncio
