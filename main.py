@@ -489,7 +489,7 @@ async def handle_reply_keyboard_clicks(update: Update, context: ContextTypes.DEF
         keyboard = [[InlineKeyboardButton("💬 Contact Support Agent", url="https://t.me/anstans")]]
         await update.message.reply_text("🧑‍💻 **ANU Support Hub:** Click below to message support directly:", parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
-# Name Generator Callback Handler (Updated to delete old message and send new one at the bottom)
+# Name Generator Callback Handler
 async def name_generator_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer("Generating name...", show_alert=False)
@@ -538,19 +538,16 @@ async def name_generator_callback(update: Update, context: ContextTypes.DEFAULT_
         ]
     ]
 
-    # Delete the previous name message first
     try:
-        await query.message.delete()
-    except Exception as e:
-        logging.warning(f"Could not delete previous name message: {e}")
-
-    # Send the new name as a fresh message at the bottom
-    await context.bot.send_message(
-        chat_id=query.from_user.id,
-        text=msg,
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+        await query.edit_message_text(text=msg, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    except Exception:
+        # If message content didn't change enough or expired, send a new message
+        await context.bot.send_message(
+            chat_id=query.from_user.id,
+            text=msg,
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
 
 async def fetch_code_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
